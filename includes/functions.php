@@ -355,47 +355,7 @@ add_action('woocommerce_email_order_meta', function($order, $sent_to_admin, $pla
     }
 }, 10, 3);
 
-// Show custom fields in WooCommerce PDF invoices and order documents
-add_action('woocommerce_order_item_meta_end', function($item_id, $item, $order, $plain_text) {
-    // Only show once per order (on the first item)
-    static $shown_for_order = [];
-    $order_id = $order->get_id();
-    
-    if (isset($shown_for_order[$order_id])) {
-        return; // Already shown for this order
-    }
-    $shown_for_order[$order_id] = true;
-    
-    $fields = get_option('ccf_fields', []);
-    $has_custom_fields = false;
-    
-    // Check for legacy single field first
-    $legacy_value = $order->get_meta('_ccf_field', true);
-    if ($legacy_value) {
-        $legacy_label = get_option('ccf_label', 'Extra Information');
-        if ($plain_text) {
-            echo "\n" . $legacy_label . ": " . $legacy_value;
-        } else {
-            echo '<br><strong>' . esc_html($legacy_label) . ':</strong> ' . esc_html($legacy_value);
-        }
-        $has_custom_fields = true;
-    }
-    
-    // Show all multi-field values
-    foreach ($fields as $field) {
-        if (empty($field['id'])) continue;
-        
-        $field_value = $order->get_meta('_' . $field['id'], true);
-        if ($field_value) {
-            if ($plain_text) {
-                echo "\n" . $field['label'] . ": " . $field_value;
-            } else {
-                echo '<br><strong>' . esc_html($field['label']) . ':</strong> ' . esc_html($field_value);
-            }
-            $has_custom_fields = true;
-        }
-    }
-}, 10, 4);
+// Note: Removed woocommerce_order_item_meta_end hook to prevent duplicate display with products
 
 // Also add custom fields to order details in emails (alternative placement)
 add_action('woocommerce_email_order_details', function($order, $sent_to_admin, $plain_text, $email) {
