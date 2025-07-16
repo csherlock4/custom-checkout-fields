@@ -54,8 +54,6 @@ add_action('wp_footer', function() {
         window.fetch = function(url, options) {
           // Check if this is a checkout request
           if (url && url.includes('/wp-json/wc/store/v1/checkout')) {
-            console.log('[CCF] Intercepting checkout request');
-            
             // Add custom field data to the request
             if (options && options.body) {
               try {
@@ -67,14 +65,13 @@ add_action('wp_footer', function() {
                   var fieldElement = document.getElementById(field.id);
                   if (fieldElement && fieldElement.value) {
                     data[field.id] = fieldElement.value;
-                    console.log('[CCF] Adding field to checkout data:', field.id, fieldElement.value);
                   }
                 });
                 
                 // Update the request body with custom field data
                 options.body = JSON.stringify(data);
               } catch (e) {
-                console.error('[CCF] Error parsing checkout data:', e);
+                // Silent error handling
               }
             }
           }
@@ -110,21 +107,6 @@ add_action('wp_footer', function() {
         }
     }
     echo '<script>window.ccfBlockFields = ' . json_encode(array_values($enabled_fields)) . ';</script>';
-});
-
-// Debug WooCommerce availability and page detection
-add_action('wp_footer', function() {
-    if (!is_checkout()) return;
-    
-    error_log('[CCF] wp_footer hook fired on checkout page');
-    echo "<script>\n    console.log('[CCF] wp_footer hook fired on checkout page');\n    if (typeof wc_checkout_params !== 'undefined') {\n        console.log('[CCF] WooCommerce checkout parameters found');\n    } else {\n        console.log('[CCF] WooCommerce checkout parameters NOT found');\n    }\n    </script>";
-});
-
-// Try to detect if we're on a checkout page at all
-add_action('wp', function() {
-    if (is_checkout()) {
-        error_log('[CCF] WordPress detected checkout page via wp hook');
-    }
 });
 
 // Only inject fields via JS for block-based checkout if needed (not classic)
@@ -203,7 +185,6 @@ add_action('woocommerce_checkout_update_order_meta', function($order_id) {
     // Also check for legacy single field
     if (!empty($_POST['ccf_field'])) {
         $field_value = sanitize_text_field($_POST['ccf_field']);
-        error_log('[CCF] Saving legacy field value for order ' . $order_id . ': ' . $field_value);
         update_post_meta($order_id, '_ccf_field', $field_value);
     }
     
@@ -214,7 +195,6 @@ add_action('woocommerce_checkout_update_order_meta', function($order_id) {
         $field_key = $field['id'];
         if (!empty($_POST[$field_key])) {
             $field_value = sanitize_text_field($_POST[$field_key]);
-            error_log('[CCF] Saving field "' . $field['label'] . '" for order ' . $order_id . ': ' . $field_value);
             update_post_meta($order_id, '_' . $field_key, $field_value);
             
             // Also save field configuration for reference
@@ -226,12 +206,10 @@ add_action('woocommerce_checkout_update_order_meta', function($order_id) {
 // Additional save hook for block-based checkout
 add_action('woocommerce_store_api_checkout_update_order_from_request', function($order, $request) {
     $data = $request->get_json_params();
-    error_log('[CCF] Store API data: ' . print_r($data, true));
     
     // Handle legacy field
     if (!empty($data['ccf_field'])) {
         $field_value = sanitize_text_field($data['ccf_field']);
-        error_log('[CCF] Saving legacy field value via Store API for order ' . $order->get_id() . ': ' . $field_value);
         $order->update_meta_data('_ccf_field', $field_value);
     }
     
@@ -243,7 +221,6 @@ add_action('woocommerce_store_api_checkout_update_order_from_request', function(
         $field_key = $field['id'];
         if (!empty($data[$field_key])) {
             $field_value = sanitize_text_field($data[$field_key]);
-            error_log('[CCF] Saving field "' . $field['label'] . '" via Store API for order ' . $order->get_id() . ': ' . $field_value);
             $order->update_meta_data('_' . $field_key, $field_value);
             
             // Also save field configuration for reference
@@ -255,26 +232,11 @@ add_action('woocommerce_store_api_checkout_update_order_from_request', function(
     }
 }, 10, 2);
 
-// Validate field (optional - remove if not needed)
-add_action('woocommerce_checkout_process', function() {
-    // Add validation here if the field should be required
-    // For now, we'll just log that validation ran
-    error_log('[CCF] Checkout validation process ran');
-});
-
-// Block checkout validation
-add_action('woocommerce_store_api_checkout_update_order_from_request', function($order, $request) {
-    error_log('[CCF] Block checkout validation/processing ran');
-}, 5, 2);
-
 // Show field values in WooCommerce admin order details
 add_action('woocommerce_admin_order_data_after_billing_address', function($order) {
     $order_id = $order->get_id();
     $fields = get_option('ccf_fields', []);
     $has_custom_fields = false;
-    
-    error_log('[CCF] Displaying admin order fields for order ' . $order_id);
-    error_log('[CCF] Found ' . count($fields) . ' configured fields');
     
     // Check for legacy single field first
     $legacy_value = $order->get_meta('_ccf_field', true);
@@ -284,7 +246,6 @@ add_action('woocommerce_admin_order_data_after_billing_address', function($order
         echo '<p><strong>' . esc_html($legacy_label) . ':</strong><br>' . esc_html($legacy_value) . '</p>';
         echo '</div>';
         $has_custom_fields = true;
-        error_log('[CCF] Displayed legacy field: ' . $legacy_value);
     }
     
     // Show all multi-field values
@@ -292,8 +253,6 @@ add_action('woocommerce_admin_order_data_after_billing_address', function($order
         if (empty($field['id'])) continue;
         
         $field_value = $order->get_meta('_' . $field['id'], true);
-        error_log('[CCF] Checking field ' . $field['id'] . ' - value: ' . var_export($field_value, true));
-        
         if ($field_value) {
             if (!$has_custom_fields) {
                 echo '<h3>Custom Fields</h3>';
@@ -302,7 +261,6 @@ add_action('woocommerce_admin_order_data_after_billing_address', function($order
             echo '<p><strong>' . esc_html($field['label']) . ':</strong><br>' . esc_html($field_value) . '</p>';
             echo '</div>';
             $has_custom_fields = true;
-            error_log('[CCF] Displayed field: ' . $field['label'] . ' = ' . $field_value);
         }
     }
 });
@@ -419,9 +377,6 @@ add_action('woocommerce_order_details_after_order_table', function($order) {
     $fields = get_option('ccf_fields', []);
     $custom_field_data = [];
     
-    error_log('[CCF] Displaying order confirmation fields for order ' . $order_id);
-    error_log('[CCF] Found ' . count($fields) . ' configured fields');
-    
     // Check for legacy single field
     $legacy_value = $order->get_meta('_ccf_field', true);
     if ($legacy_value) {
@@ -430,7 +385,6 @@ add_action('woocommerce_order_details_after_order_table', function($order) {
             'label' => $legacy_label,
             'value' => $legacy_value
         ];
-        error_log('[CCF] Found legacy field: ' . $legacy_value);
     }
     
     // Get all multi-field values
@@ -438,20 +392,17 @@ add_action('woocommerce_order_details_after_order_table', function($order) {
         if (empty($field['id'])) continue;
         
         $field_value = $order->get_meta('_' . $field['id'], true);
-        error_log('[CCF] Checking field ' . $field['id'] . ' - value: ' . var_export($field_value, true));
         
         if ($field_value) {
             $custom_field_data[] = [
                 'label' => $field['label'],
                 'value' => $field_value
             ];
-            error_log('[CCF] Added field to display: ' . $field['label'] . ' = ' . $field_value);
         }
     }
     
     // Display custom fields if any exist
     if (!empty($custom_field_data)) {
-        error_log('[CCF] Displaying ' . count($custom_field_data) . ' custom fields');
         echo '<h2 class="woocommerce-order-details__title">Custom Information</h2>';
         echo '<table class="woocommerce-table woocommerce-table--custom-fields shop_table custom-fields" style="margin-bottom: 20px;">';
         echo '<tbody>';
@@ -463,8 +414,6 @@ add_action('woocommerce_order_details_after_order_table', function($order) {
         }
         echo '</tbody>';
         echo '</table>';
-    } else {
-        error_log('[CCF] No custom fields to display');
     }
 }, 10, 1);
 
@@ -554,13 +503,6 @@ function ccf_enqueue_order_meta_scripts($hook_suffix) {
         [],
         filemtime(CCF_PATH . 'admin/dist/assets/main.css')
     );
-    
-    // Add debugging info
-    wp_add_inline_script('ccf-order-meta-js', '
-        console.log("[CCF Order Meta] Script loaded on page: " + "' . $hook_suffix . '");
-        console.log("[CCF Order Meta] Screen ID: " + "' . $screen->id . '");
-        console.log("[CCF Order Meta] Looking for element: #ccf-order-meta-root");
-    ', 'before');
 }
 
 // Register custom REST API endpoints for order meta
@@ -610,8 +552,6 @@ function ccf_check_order_meta_permissions($request) {
 function ccf_get_order_meta($request) {
     $order_id = $request->get_param('order_id');
     
-    error_log('[CCF API] Getting order meta for order: ' . $order_id);
-    
     // Get order to make sure it exists
     $order = wc_get_order($order_id);
     if (!$order) {
@@ -656,8 +596,6 @@ function ccf_get_order_meta($request) {
         }
     }
     
-    error_log('[CCF API] Found ' . count($custom_fields) . ' custom fields for order ' . $order_id);
-    
     return [
         'order_id' => $order_id,
         'custom_fields' => $custom_fields
@@ -667,9 +605,6 @@ function ccf_get_order_meta($request) {
 function ccf_update_order_meta($request) {
     $order_id = $request->get_param('order_id');
     $fields = $request->get_param('fields');
-    
-    error_log('[CCF API] Updating order meta for order: ' . $order_id);
-    error_log('[CCF API] Fields to update: ' . print_r($fields, true));
     
     // Get order to make sure it exists
     $order = wc_get_order($order_id);
@@ -695,8 +630,6 @@ function ccf_update_order_meta($request) {
             'key' => $field_key,
             'value' => $field_value
         ];
-        
-        error_log('[CCF API] Updated field ' . $field_key . ' = ' . $field_value);
     }
     
     // Add order note about the update

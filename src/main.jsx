@@ -3,57 +3,51 @@ import ReactDOM from 'react-dom/client'
 import App from './App'
 import './index.css'
 
-// Wait for DOM to be ready and check if element exists
-document.addEventListener('DOMContentLoaded', function() {
+// Global flag to prevent duplicate mounting
+let appMounted = false
+
+function mountApp() {
+  // Prevent mounting multiple times
+  if (appMounted) {
+    return
+  }
+  
   const rootElement = document.getElementById('ccf-admin-root')
   
   if (!rootElement) {
-    console.error('[CCF] Root element #ccf-admin-root not found')
     return
+  }
+  
+  // Check if element already has React content
+  if (rootElement.hasChildNodes()) {
+    rootElement.innerHTML = ''
   }
   
   try {
     const root = ReactDOM.createRoot(rootElement)
     root.render(
-      <React.StrictMode>
-        <App />
-      </React.StrictMode>
+      <App />
     )
-    console.log('[CCF] React app mounted successfully')
+    appMounted = true
   } catch (error) {
-    console.error('[CCF] Error mounting React app:', error)
     // Fallback to legacy render if createRoot fails
     try {
       ReactDOM.render(
-        <React.StrictMode>
-          <App />
-        </React.StrictMode>,
+        <App />,
         rootElement
       )
-      console.log('[CCF] React app mounted with legacy render')
+      appMounted = true
     } catch (legacyError) {
-      console.error('[CCF] Legacy render also failed:', legacyError)
+      // Silent failure
     }
   }
-})
+}
 
-// Also try immediate execution in case DOMContentLoaded already fired
+// Single mounting strategy
 if (document.readyState === 'loading') {
   // DOM is still loading, wait for DOMContentLoaded
+  document.addEventListener('DOMContentLoaded', mountApp)
 } else {
-  // DOM is already loaded
-  const rootElement = document.getElementById('ccf-admin-root')
-  if (rootElement) {
-    try {
-      const root = ReactDOM.createRoot(rootElement)
-      root.render(
-        <React.StrictMode>
-          <App />
-        </React.StrictMode>
-      )
-      console.log('[CCF] React app mounted immediately')
-    } catch (error) {
-      console.error('[CCF] Immediate mount failed:', error)
-    }
-  }
+  // DOM is already loaded, mount immediately
+  mountApp()
 }

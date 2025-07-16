@@ -5,8 +5,6 @@ import OrderMetaBox from './OrderMetaBox.jsx'
 document.addEventListener('DOMContentLoaded', function() {
   const container = document.getElementById('ccf-order-meta-root')
   if (container) {
-    console.log('[CCF Order Meta] Initializing React order meta box')
-    
     // Get order ID from the container data attribute
     const orderId = container.dataset.orderId
     
@@ -14,10 +12,7 @@ document.addEventListener('DOMContentLoaded', function() {
       const root = createRoot(container)
       root.render(<OrderMetaBox orderId={orderId} />)
     } else {
-      console.error('[CCF Order Meta] No order ID found in container')
       container.innerHTML = '<div class="p-4 text-red-600">Error: No order ID found</div>'
     }
-  } else {
-    console.log('[CCF Order Meta] Container not found - likely not on order edit page')
   }
 })

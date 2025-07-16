@@ -28,6 +28,7 @@ add_action('init', function() {
         'show_in_rest' => [
             'schema' => [
                 'type' => 'array',
+                'minItems' => 0,  // Allow empty arrays
                 'items' => [
                     'type' => 'object',
                     'properties' => [
@@ -38,11 +39,28 @@ add_action('init', function() {
                         'enabled' => ['type' => 'boolean'],
                         'placeholder' => ['type' => 'string'],
                         'position' => ['type' => 'string']
-                    ]
+                    ],
+                    'additionalProperties' => false
                 ]
             ]
         ],
-        'default' => []
+        'default' => [],
+        'sanitize_callback' => function($value) {
+            // Handle null or false values (convert to empty array)
+            if ($value === null || $value === false) {
+                $value = [];
+            }
+            
+            // Ensure we have an array
+            if (!is_array($value)) {
+                $value = [];
+            }
+            
+            // Clear any object cache to prevent stale data
+            wp_cache_delete('ccf_fields', 'options');
+            
+            return $value;
+        }
     ]);
 });
 
@@ -50,11 +68,6 @@ add_action('init', function() {
 add_action('wp_footer', function() {
     if (is_checkout()) {
         echo '<!-- CCF Plugin Loaded Successfully -->';
-        error_log('[CCF] Plugin loaded on checkout page');
-        
-        // Debug the label value
-        $label = get_option('ccf_label', 'Default Label');
-        error_log('[CCF] Current label value: ' . $label);
     }
 });
 
@@ -97,12 +110,50 @@ add_action('admin_enqueue_scripts', function ($hook_suffix) {
         [],
         filemtime(CCF_PATH . 'admin/dist/assets/main.css')
     );
-    
-    // Add some debugging info
-    wp_add_inline_script('ccf-admin-js', '
-        console.log("[CCF] Admin script loaded on page: " + "' . $hook_suffix . '");
-        console.log("[CCF] Looking for element: #ccf-admin-root");
-    ', 'before');
+});
+
+// Add a custom REST endpoint to test direct option updates
+add_action('rest_api_init', function() {
+    register_rest_route('ccf/v1', '/test-save', [
+        'methods' => 'POST',
+        'callback' => function($request) {
+            try {
+                $fields = $request->get_param('fields');
+                
+                // Ensure we have an array (even if empty)
+                if (!is_array($fields)) {
+                    $fields = [];
+                }
+                
+                $result = update_option('ccf_fields', $fields);
+                $stored = get_option('ccf_fields');
+                
+                return [
+                    'success' => $result,
+                    'sent' => $fields,
+                    'stored' => $stored,
+                    'message' => 'Direct option update completed'
+                ];
+            } catch (Exception $e) {
+                return new WP_Error('test_error', $e->getMessage(), ['status' => 500]);
+            }
+        },
+        'permission_callback' => function() {
+            return current_user_can('manage_options');
+        },
+        'args' => [
+            'fields' => [
+                'required' => false,  // Make it optional since empty arrays might not be sent
+                'default' => [],
+                'validate_callback' => function($param) {
+                    return is_array($param) || is_null($param);
+                },
+                'sanitize_callback' => function($param) {
+                    return is_array($param) ? $param : [];
+                }
+            ]
+        ]
+    ]);
 });
 
 // Load field logic

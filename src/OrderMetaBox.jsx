@@ -11,14 +11,10 @@ export default function OrderMetaBox({ orderId }) {
   useEffect(() => {
     if (!orderId) return
     
-    console.log('[MCCF Order Meta] Loading order meta for order:', orderId)
-    
     // Use a custom REST endpoint to get order meta data
     wp.apiRequest({
       path: `/mccf/v1/order-meta/${orderId}`,
     }).then((data) => {
-      console.log('[MCCF Order Meta] Order meta data:', data)
-      
       setCustomFields(data.custom_fields || [])
       
       // Initialize edit values
@@ -30,7 +26,6 @@ export default function OrderMetaBox({ orderId }) {
       
       setLoading(false)
     }).catch(err => {
-      console.error('[MCCF Order Meta] Error loading order meta:', err)
       setError('Could not load order meta data. Check console for details.')
       setLoading(false)
     })
@@ -56,8 +51,6 @@ export default function OrderMetaBox({ orderId }) {
       return
     }
     
-    console.log('[MCCF Order Meta] Saving changes:', changedFields)
-    
     wp.apiRequest({
       path: `/mccf/v1/order-meta/${orderId}`,
       method: 'POST',
@@ -65,8 +58,6 @@ export default function OrderMetaBox({ orderId }) {
         fields: changedFields
       }
     }).then((response) => {
-      console.log('[MCCF Order Meta] Save response:', response)
-      
       // Update local state
       setCustomFields(prev => prev.map(field => ({
         ...field,
@@ -87,7 +78,6 @@ export default function OrderMetaBox({ orderId }) {
       }
       
     }).catch(err => {
-      console.error('[MCCF Order Meta] Error saving:', err)
       setSaving(false)
       
       // Show error message
