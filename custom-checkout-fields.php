@@ -1,9 +1,9 @@
 <?php
 /**
  * Plugin Name: Custom Checkout Fields
- * Description: Add admin-configurable custom fields to WooCommerce checkout.
+ * Description: Adds admin-configurable custom fields to WooCommerce checkout.
  * Version: 1.0
- * Author: You
+ * Author: Thems in STEM
  */
 
 if (!defined('ABSPATH')) exit;
@@ -156,5 +156,17 @@ add_action('rest_api_init', function() {
     ]);
 });
 
-// Load field logic
+// Load all class files
+require_once CCF_PATH . 'includes/class-field-manager.php';
+require_once CCF_PATH . 'includes/class-checkout-integration.php';
+require_once CCF_PATH . 'includes/class-order-meta.php';
+require_once CCF_PATH . 'includes/class-admin-integration.php';
+require_once CCF_PATH . 'includes/class-email-integration.php';
+require_once CCF_PATH . 'includes/class-rest-api.php';
+require_once CCF_PATH . 'includes/blocks-integration.php';
+
+// Load utility functions
 require_once CCF_PATH . 'includes/functions.php';
+
+// Initialize all components
+add_action('plugins_loaded', 'ccf_init_components');

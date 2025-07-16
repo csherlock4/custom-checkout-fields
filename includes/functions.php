@@ -1,649 +1,297 @@
 <?php
-// Inject custom fields for WooCommerce block-based checkout via JavaScript
-add_action('wp_footer', function() {
-    if (!is_checkout()) return;
 
-    // Detect block-based checkout by looking for a block checkout form
-    ?>
-    <script type="text/javascript">
-    (function() {
-      function isBlockCheckout() {
-        return document.querySelector('.wc-block-checkout__form');
-      }
-      
-      function addCCFBlockFields() {
-        if (!isBlockCheckout()) return;
-        if (document.querySelector('.ccf-custom-fields-container')) return;
+/**
+ * Utility Functions
+ * 
+ * This file contains utility functions and helpers for the Custom Checkout Fields plugin.
+ * Most functionality has been moved to dedicated classes for better organization.
+ */
 
-        // These fields are output by PHP for JS to use
-        var ccfFields = window.ccfBlockFields || [];
-        if (!ccfFields.length) return;
-
-        var fieldsHtml = '<div class="ccf-custom-fields-container" style="margin: 20px 0;">';
-        ccfFields.forEach(function(field) {
-          fieldsHtml += '<div class="ccf-field-wrapper" style="margin-bottom: 15px; padding: 15px; background: #f9f9f9; border: 1px solid #ddd; border-radius: 4px;">';
-          fieldsHtml += '<label for="' + field.id + '" class="wc-block-components-text-input__label" style="display: block; margin-bottom: 8px; font-weight: 600;">' + field.label;
-          if (field.required) fieldsHtml += ' <span style="color: red;">*</span>';
-          fieldsHtml += '</label>';
-          if (field.type === 'textarea') {
-            fieldsHtml += '<textarea id="' + field.id + '" name="' + field.id + '" placeholder="' + (field.placeholder || '') + '" style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 4px; min-height: 80px;"' + (field.required ? ' required' : '') + '></textarea>';
-          } else {
-            fieldsHtml += '<input type="' + field.type + '" id="' + field.id + '" name="' + field.id + '" placeholder="' + (field.placeholder || '') + '" style="width: 100%; padding: 12px; border: 1px solid #ddd; border-radius: 4px;"' + (field.required ? ' required' : '') + ' />';
-          }
-          fieldsHtml += '</div>';
-        });
-        fieldsHtml += '</div>';
-
-        // Insert after billing fields if possible
-        var blockBillingFields = document.querySelector('.wc-block-checkout__billing-fields');
-        if (blockBillingFields) {
-          blockBillingFields.insertAdjacentHTML('afterend', fieldsHtml);
-        } else {
-          // Fallback: insert at end of form
-          var blockForm = document.querySelector('.wc-block-checkout__form');
-          if (blockForm) blockForm.insertAdjacentHTML('beforeend', fieldsHtml);
-        }
-        
-        // Hook into the WooCommerce Block checkout process
-        setupBlockCheckoutInterception();
-      }
-      
-      function setupBlockCheckoutInterception() {
-        // Override the fetch function to intercept checkout requests
-        var originalFetch = window.fetch;
-        window.fetch = function(url, options) {
-          // Check if this is a checkout request
-          if (url && url.includes('/wp-json/wc/store/v1/checkout')) {
-            // Add custom field data to the request
-            if (options && options.body) {
-              try {
-                var data = JSON.parse(options.body);
-                
-                // Add custom field values to the request data
-                var ccfFields = window.ccfBlockFields || [];
-                ccfFields.forEach(function(field) {
-                  var fieldElement = document.getElementById(field.id);
-                  if (fieldElement && fieldElement.value) {
-                    data[field.id] = fieldElement.value;
-                  }
-                });
-                
-                // Update the request body with custom field data
-                options.body = JSON.stringify(data);
-              } catch (e) {
-                // Silent error handling
-              }
-            }
-          }
-          
-          return originalFetch.apply(this, arguments);
-        };
-      }
-      
-      document.addEventListener('DOMContentLoaded', function() {
-        setTimeout(addCCFBlockFields, 500);
-        setTimeout(addCCFBlockFields, 1500);
-        setTimeout(addCCFBlockFields, 3000);
-      });
-    })();
-    </script>
-    <?php
-    // Output enabled fields as JS variable for block checkout
-    $fields = get_option('ccf_fields', []);
-    $enabled_fields = array_filter($fields, function($field) {
-        return !empty($field['enabled']) && !empty($field['id']);
-    });
-    if (empty($enabled_fields)) {
-        $label = get_option('ccf_label', 'Extra Information');
-        if (!empty($label)) {
-            $enabled_fields = [[
-                'id' => 'ccf_field',
-                'label' => $label,
-                'type' => 'text',
-                'required' => false,
-                'placeholder' => 'Enter ' . $label,
-                'position' => 'after_billing'
-            ]];
-        }
-    }
-    echo '<script>window.ccfBlockFields = ' . json_encode(array_values($enabled_fields)) . ';</script>';
-});
-
-// Only inject fields via JS for block-based checkout if needed (not classic)
-// (You can add a block checkout JS injection here if you want, but classic should be PHP only)
-
-// Use multiple hooks to ensure field appears somewhere (for classic checkout)
-add_action('woocommerce_after_checkout_billing_form', 'ccf_add_custom_field', 10, 1);
-add_action('woocommerce_after_order_notes', 'ccf_add_custom_field', 10, 1);
-add_action('woocommerce_checkout_after_customer_details', 'ccf_add_custom_field', 10, 1);
-add_action('woocommerce_review_order_before_submit', 'ccf_add_custom_field', 10, 1);
-
-// Centralized function to add the field (for classic checkout)
-function ccf_add_custom_field($checkout) {
-    // Get all enabled fields
-    $fields = get_option('ccf_fields', []);
-    $enabled_fields = array_filter($fields, function($field) {
-        return !empty($field['enabled']) && !empty($field['id']);
-    });
-
-    // Fallback to legacy single field for backward compatibility
-    if (empty($enabled_fields)) {
-        $label = get_option('ccf_label', 'Extra Information');
-        if (!empty($label)) {
-            $enabled_fields = [[
-                'id' => 'ccf_field',
-                'label' => $label,
-                'type' => 'text',
-                'required' => false,
-                'placeholder' => 'Enter ' . $label,
-                'position' => 'after_billing'
-            ]];
-        }
-    }
-
-    if (empty($enabled_fields)) return;
-
-    foreach ($enabled_fields as $field) {
-        $args = [
-            'type'        => $field['type'] ?? 'text',
-            'class'       => ['form-row-wide', 'ccf-custom-field'],
-            'label'       => esc_html($field['label']),
-            'required'    => !empty($field['required']),
-            'priority'    => 100,
-            'placeholder' => isset($field['placeholder']) ? esc_attr($field['placeholder']) : '',
-        ];
-        echo '<div class="ccf-field-wrapper">';
-        woocommerce_form_field($field['id'], $args, $checkout->get_value($field['id']));
-        echo '</div>';
-    }
+// Prevent direct access
+if (!defined('ABSPATH')) {
+    exit;
 }
 
-// Add CSS to ensure field is visible
-add_action('wp_head', function() {
-    if (!is_checkout()) return;
-    
-    echo '<style>
-    .ccf-custom-field {
-        display: block !important;
-        clear: both !important;
-        width: 100% !important;
-        margin: 10px 0 !important;
-    }
-    .ccf-custom-field input {
-        width: 100% !important;
-        padding: 10px !important;
-        border: 1px solid #ccc !important;
-    }
-    </style>';
-});
-
-// Save field data when order is placed (works for both classic and block checkout)
-add_action('woocommerce_checkout_update_order_meta', function($order_id) {
-    // Get all configured fields
-    $fields = get_option('ccf_fields', []);
-    
-    // Also check for legacy single field
-    if (!empty($_POST['ccf_field'])) {
-        $field_value = sanitize_text_field($_POST['ccf_field']);
-        update_post_meta($order_id, '_ccf_field', $field_value);
-    }
-    
-    // Save all custom fields
-    foreach ($fields as $field) {
-        if (empty($field['enabled']) || empty($field['id'])) continue;
-        
-        $field_key = $field['id'];
-        if (!empty($_POST[$field_key])) {
-            $field_value = sanitize_text_field($_POST[$field_key]);
-            update_post_meta($order_id, '_' . $field_key, $field_value);
-            
-            // Also save field configuration for reference
-            update_post_meta($order_id, '_' . $field_key . '_config', $field);
-        }
-    }
-});
-
-// Additional save hook for block-based checkout
-add_action('woocommerce_store_api_checkout_update_order_from_request', function($order, $request) {
-    $data = $request->get_json_params();
-    
-    // Handle legacy field
-    if (!empty($data['ccf_field'])) {
-        $field_value = sanitize_text_field($data['ccf_field']);
-        $order->update_meta_data('_ccf_field', $field_value);
-    }
-    
-    // Handle all configured fields
-    $fields = get_option('ccf_fields', []);
-    foreach ($fields as $field) {
-        if (empty($field['enabled']) || empty($field['id'])) continue;
-        
-        $field_key = $field['id'];
-        if (!empty($data[$field_key])) {
-            $field_value = sanitize_text_field($data[$field_key]);
-            $order->update_meta_data('_' . $field_key, $field_value);
-            
-            // Also save field configuration for reference
-            $order->update_meta_data('_' . $field_key . '_config', $field);
-            
-            // Save the order to persist the meta data
-            $order->save();
-        }
-    }
-}, 10, 2);
-
-// Show field values in WooCommerce admin order details
-add_action('woocommerce_admin_order_data_after_billing_address', function($order) {
-    $order_id = $order->get_id();
-    $fields = get_option('ccf_fields', []);
-    $has_custom_fields = false;
-    
-    // Check for legacy single field first
-    $legacy_value = $order->get_meta('_ccf_field', true);
-    if ($legacy_value) {
-        $legacy_label = get_option('ccf_label', 'Extra Information');
-        echo '<div class="address">';
-        echo '<p><strong>' . esc_html($legacy_label) . ':</strong><br>' . esc_html($legacy_value) . '</p>';
-        echo '</div>';
-        $has_custom_fields = true;
-    }
-    
-    // Show all multi-field values
-    foreach ($fields as $field) {
-        if (empty($field['id'])) continue;
-        
-        $field_value = $order->get_meta('_' . $field['id'], true);
-        if ($field_value) {
-            if (!$has_custom_fields) {
-                echo '<h3>Custom Fields</h3>';
-            }
-            echo '<div class="address">';
-            echo '<p><strong>' . esc_html($field['label']) . ':</strong><br>' . esc_html($field_value) . '</p>';
-            echo '</div>';
-            $has_custom_fields = true;
-        }
-    }
-});
-
-// Show field values in customer order emails and invoices
-add_action('woocommerce_email_order_meta', function($order, $sent_to_admin, $plain_text) {
-    $order_id = $order->get_id();
-    $fields = get_option('ccf_fields', []);
-    $has_custom_fields = false;
-    
-    // Check for legacy single field first
-    $legacy_value = $order->get_meta('_ccf_field', true);
-    if ($legacy_value) {
-        $legacy_label = get_option('ccf_label', 'Extra Information');
-        if ($plain_text) {
-            echo "\n" . $legacy_label . ": " . $legacy_value . "\n";
-        } else {
-            echo '<h3>Custom Information</h3>';
-            echo '<p><strong>' . esc_html($legacy_label) . ':</strong> ' . esc_html($legacy_value) . '</p>';
-        }
-        $has_custom_fields = true;
-    }
-    
-    // Show all multi-field values
-    foreach ($fields as $field) {
-        if (empty($field['id'])) continue;
-        
-        $field_value = $order->get_meta('_' . $field['id'], true);
-        if ($field_value) {
-            if (!$has_custom_fields && !$plain_text) {
-                echo '<h3>Custom Information</h3>';
-            }
-            
-            if ($plain_text) {
-                echo "\n" . $field['label'] . ": " . $field_value . "\n";
-            } else {
-                echo '<p><strong>' . esc_html($field['label']) . ':</strong> ' . esc_html($field_value) . '</p>';
-            }
-            $has_custom_fields = true;
-        }
-    }
-    
-    // Add some spacing after custom fields
-    if ($has_custom_fields) {
-        if ($plain_text) {
-            echo "\n";
-        } else {
-            echo '<br>';
-        }
-    }
-}, 10, 3);
-
-// Note: Removed woocommerce_order_item_meta_end hook to prevent duplicate display with products
-
-// Also add custom fields to order details in emails (alternative placement)
-add_action('woocommerce_email_order_details', function($order, $sent_to_admin, $plain_text, $email) {
-    $order_id = $order->get_id();
-    $fields = get_option('ccf_fields', []);
-    $has_custom_fields = false;
-    
-    // Collect all custom field values
-    $custom_field_data = [];
-    
-    // Check for legacy single field
-    $legacy_value = $order->get_meta('_ccf_field', true);
-    if ($legacy_value) {
-        $legacy_label = get_option('ccf_label', 'Extra Information');
-        $custom_field_data[] = [
-            'label' => $legacy_label,
-            'value' => $legacy_value
-        ];
-    }
-    
-    // Get all multi-field values
-    foreach ($fields as $field) {
-        if (empty($field['id'])) continue;
-        
-        $field_value = $order->get_meta('_' . $field['id'], true);
-        if ($field_value) {
-            $custom_field_data[] = [
-                'label' => $field['label'],
-                'value' => $field_value
-            ];
-        }
-    }
-    
-    // Display custom fields if any exist
-    if (!empty($custom_field_data)) {
-        if ($plain_text) {
-            echo "\n" . str_repeat('=', 50) . "\n";
-            echo "CUSTOM INFORMATION\n";
-            echo str_repeat('=', 50) . "\n";
-            foreach ($custom_field_data as $field_data) {
-                echo $field_data['label'] . ": " . $field_data['value'] . "\n";
-            }
-            echo "\n";
-        } else {
-            echo '<h2 style="color: #333; font-size: 18px; margin: 20px 0 10px 0;">Custom Information</h2>';
-            echo '<table cellspacing="0" cellpadding="6" style="width: 100%; border: 1px solid #eee; margin-bottom: 20px;" border="1" bordercolor="#eee">';
-            foreach ($custom_field_data as $field_data) {
-                echo '<tr>';
-                echo '<td style="text-align: left; border: 1px solid #eee; padding: 8px; background: #f7f7f7;"><strong>' . esc_html($field_data['label']) . '</strong></td>';
-                echo '<td style="text-align: left; border: 1px solid #eee; padding: 8px;">' . esc_html($field_data['value']) . '</td>';
-                echo '</tr>';
-            }
-            echo '</table>';
-        }
-    }
-}, 5, 4);
-
-// Show custom fields on order confirmation page and customer account order view
-add_action('woocommerce_order_details_after_order_table', function($order) {
-    $order_id = $order->get_id();
-    $fields = get_option('ccf_fields', []);
-    $custom_field_data = [];
-    
-    // Check for legacy single field
-    $legacy_value = $order->get_meta('_ccf_field', true);
-    if ($legacy_value) {
-        $legacy_label = get_option('ccf_label', 'Extra Information');
-        $custom_field_data[] = [
-            'label' => $legacy_label,
-            'value' => $legacy_value
-        ];
-    }
-    
-    // Get all multi-field values
-    foreach ($fields as $field) {
-        if (empty($field['id'])) continue;
-        
-        $field_value = $order->get_meta('_' . $field['id'], true);
-        
-        if ($field_value) {
-            $custom_field_data[] = [
-                'label' => $field['label'],
-                'value' => $field_value
-            ];
-        }
-    }
-    
-    // Display custom fields if any exist
-    if (!empty($custom_field_data)) {
-        echo '<h2 class="woocommerce-order-details__title">Custom Information</h2>';
-        echo '<table class="woocommerce-table woocommerce-table--custom-fields shop_table custom-fields" style="margin-bottom: 20px;">';
-        echo '<tbody>';
-        foreach ($custom_field_data as $field_data) {
-            echo '<tr>';
-            echo '<th style="text-align: left; padding: 8px; background: #f7f7f7; border: 1px solid #ddd;">' . esc_html($field_data['label']) . '</th>';
-            echo '<td style="text-align: left; padding: 8px; border: 1px solid #ddd;">' . esc_html($field_data['value']) . '</td>';
-            echo '</tr>';
-        }
-        echo '</tbody>';
-        echo '</table>';
-    }
-}, 10, 1);
-
-// Add React-powered meta box to WooCommerce order edit screen
-add_action('add_meta_boxes', 'ccf_add_order_meta_box');
-
-function ccf_add_order_meta_box() {
-    // Only add meta box on WooCommerce order edit screens
-    $screen = get_current_screen();
-    if (!$screen || !in_array($screen->id, ['shop_order', 'woocommerce_page_wc-orders'])) {
-        return;
-    }
-    
-    add_meta_box(
-        'ccf-order-fields',
-        'Custom Checkout Fields',
-        'ccf_render_order_meta_box',
-        ['shop_order', 'woocommerce_page_wc-orders'],
-        'normal',
-        'default'
-    );
+/**
+ * Get plugin version
+ * 
+ * @return string Plugin version
+ */
+function ccf_get_version() {
+    return '1.0.0';
 }
 
-function ccf_render_order_meta_box($post_or_order) {
-    // Get order ID - handle both post object and WC_Order object
-    $order_id = null;
-    if (is_object($post_or_order)) {
-        if (method_exists($post_or_order, 'get_id')) {
-            // WC_Order object
-            $order_id = $post_or_order->get_id();
-        } elseif (isset($post_or_order->ID)) {
-            // Post object
-            $order_id = $post_or_order->ID;
-        }
-    } else {
-        // Fallback - try to get from $_GET or $_POST
-        $order_id = isset($_GET['id']) ? intval($_GET['id']) : (isset($_POST['order_id']) ? intval($_POST['order_id']) : null);
-    }
-    
-    if (!$order_id) {
-        echo '<div class="p-4 text-red-600">Error: Could not determine order ID</div>';
-        return;
-    }
-    
-    // Create container for React component
-    echo '<div id="ccf-order-meta-root" data-order-id="' . esc_attr($order_id) . '">Loading custom fields...</div>';
+/**
+ * Get plugin name
+ * 
+ * @return string Plugin name
+ */
+function ccf_get_plugin_name() {
+    return __('Custom Checkout Fields', 'custom-checkout-fields');
 }
 
-// Enqueue React script on order edit pages
-add_action('admin_enqueue_scripts', 'ccf_enqueue_order_meta_scripts');
-
-function ccf_enqueue_order_meta_scripts($hook_suffix) {
-    // Only load on WooCommerce order edit pages
-    $screen = get_current_screen();
-    if (!$screen || !in_array($screen->id, ['shop_order', 'woocommerce_page_wc-orders'])) {
-        return;
-    }
-    
-    // Check if we're on an order edit page (not order list)
-    if (!isset($_GET['id']) && !isset($_GET['post'])) {
-        return;
-    }
-    
-    $asset_path = CCF_URL . 'admin/dist/';
-    
-    // Enqueue the order meta box React script
-    wp_enqueue_script(
-        'ccf-order-meta-js',
-        $asset_path . 'assets/order-meta.js',
-        ['wp-api-request'],
-        filemtime(CCF_PATH . 'admin/dist/assets/order-meta.js'),
-        true
-    );
-    
-    // Add module attribute to the script tag
-    add_filter('script_loader_tag', function($tag, $handle, $src) {
-        if ($handle === 'ccf-order-meta-js') {
-            $tag = str_replace('<script ', '<script type="module" ', $tag);
-        }
-        return $tag;
-    }, 10, 3);
-    
-    // Enqueue the shared CSS
-    wp_enqueue_style(
-        'ccf-order-meta-css',
-        $asset_path . 'assets/main.css',
-        [],
-        filemtime(CCF_PATH . 'admin/dist/assets/main.css')
-    );
+/**
+ * Check if WooCommerce is active
+ * 
+ * @return bool True if WooCommerce is active
+ */
+function ccf_is_woocommerce_active() {
+    return class_exists('WooCommerce');
 }
 
-// Register custom REST API endpoints for order meta
-add_action('rest_api_init', 'ccf_register_order_meta_endpoints');
-
-function ccf_register_order_meta_endpoints() {
-    // GET endpoint to retrieve order meta
-    register_rest_route('ccf/v1', '/order-meta/(?P<order_id>\d+)', [
-        'methods' => 'GET',
-        'callback' => 'ccf_get_order_meta',
-        'permission_callback' => 'ccf_check_order_meta_permissions',
-        'args' => [
-            'order_id' => [
-                'validate_callback' => function($param, $request, $key) {
-                    return is_numeric($param);
-                }
-            ]
-        ]
-    ]);
-    
-    // POST endpoint to update order meta
-    register_rest_route('ccf/v1', '/order-meta/(?P<order_id>\d+)', [
-        'methods' => 'POST',
-        'callback' => 'ccf_update_order_meta',
-        'permission_callback' => 'ccf_check_order_meta_permissions',
-        'args' => [
-            'order_id' => [
-                'validate_callback' => function($param, $request, $key) {
-                    return is_numeric($param);
-                }
-            ],
-            'fields' => [
-                'required' => true,
-                'validate_callback' => function($param, $request, $key) {
-                    return is_array($param);
-                }
-            ]
-        ]
+/**
+ * Get supported field types
+ * 
+ * @return array Array of supported field types
+ */
+function ccf_get_supported_field_types() {
+    return apply_filters('ccf_supported_field_types', [
+        'text' => __('Text Input', 'custom-checkout-fields'),
+        'textarea' => __('Textarea', 'custom-checkout-fields'),
+        'select' => __('Select Dropdown', 'custom-checkout-fields'),
+        'email' => __('Email', 'custom-checkout-fields'),
+        'tel' => __('Phone', 'custom-checkout-fields'),
+        'number' => __('Number', 'custom-checkout-fields'),
+        'url' => __('URL', 'custom-checkout-fields'),
     ]);
 }
 
-function ccf_check_order_meta_permissions($request) {
-    // Check if user can edit shop orders
+/**
+ * Get field positions
+ * 
+ * @return array Array of field positions
+ */
+function ccf_get_field_positions() {
+    return apply_filters('ccf_field_positions', [
+        'after_billing' => __('After Billing Fields', 'custom-checkout-fields'),
+        'after_shipping' => __('After Shipping Fields', 'custom-checkout-fields'),
+        'before_payment' => __('Before Payment Methods', 'custom-checkout-fields'),
+    ]);
+}
+
+/**
+ * Log debug message
+ * 
+ * @param string $message Message to log
+ * @param string $level Log level (info, warning, error)
+ */
+function ccf_log($message, $level = 'info') {
+    if (defined('WP_DEBUG') && WP_DEBUG) {
+        error_log("[CCF] [{$level}] {$message}");
+    }
+}
+
+/**
+ * Check if current page is checkout
+ * 
+ * @return bool True if checkout page
+ */
+function ccf_is_checkout() {
+    return function_exists('is_checkout') && is_checkout();
+}
+
+/**
+ * Get field validation rules
+ * 
+ * @param string $field_type Field type
+ * @return array Validation rules
+ */
+function ccf_get_field_validation_rules($field_type) {
+    $rules = [
+        'text' => ['max_length' => 255],
+        'textarea' => ['max_length' => 1000],
+        'email' => ['max_length' => 255, 'format' => 'email'],
+        'tel' => ['max_length' => 20],
+        'number' => ['type' => 'numeric'],
+        'url' => ['max_length' => 255, 'format' => 'url'],
+        'select' => ['options_required' => true],
+    ];
+    
+    return apply_filters('ccf_field_validation_rules', $rules[$field_type] ?? [], $field_type);
+}
+
+/**
+ * Format field value for display
+ * 
+ * @param mixed $value Field value
+ * @param string $field_type Field type
+ * @return string Formatted value
+ */
+function ccf_format_field_value($value, $field_type = 'text') {
+    if (empty($value)) {
+        return '';
+    }
+    
+    switch ($field_type) {
+        case 'email':
+            return sprintf('<a href="mailto:%s">%s</a>', esc_attr($value), esc_html($value));
+        case 'tel':
+            return sprintf('<a href="tel:%s">%s</a>', esc_attr($value), esc_html($value));
+        case 'url':
+            return sprintf('<a href="%s" target="_blank">%s</a>', esc_url($value), esc_html($value));
+        case 'textarea':
+            return nl2br(esc_html($value));
+        default:
+            return esc_html($value);
+    }
+}
+
+/**
+ * Get default field configuration
+ * 
+ * @return array Default field configuration
+ */
+function ccf_get_default_field_config() {
+    return [
+        'id' => '',
+        'label' => '',
+        'type' => 'text',
+        'required' => false,
+        'enabled' => true,
+        'placeholder' => '',
+        'position' => 'after_billing',
+        'options' => [],
+    ];
+}
+
+/**
+ * Generate CSS class for field type
+ * 
+ * @param string $field_type Field type
+ * @return string CSS class
+ */
+function ccf_get_field_type_class($field_type) {
+    $classes = [
+        'text' => 'ccf-field-text',
+        'textarea' => 'ccf-field-textarea',
+        'select' => 'ccf-field-select',
+        'email' => 'ccf-field-email',
+        'tel' => 'ccf-field-tel',
+        'number' => 'ccf-field-number',
+        'url' => 'ccf-field-url',
+    ];
+    
+    return $classes[$field_type] ?? 'ccf-field-text';
+}
+
+/**
+ * Check if field is required
+ * 
+ * @param array $field Field configuration
+ * @return bool True if required
+ */
+function ccf_is_field_required($field) {
+    return !empty($field['required']);
+}
+
+/**
+ * Check if field is enabled
+ * 
+ * @param array $field Field configuration
+ * @return bool True if enabled
+ */
+function ccf_is_field_enabled($field) {
+    return !empty($field['enabled']) && !empty($field['id']);
+}
+
+/**
+ * Get admin page URL
+ * 
+ * @return string Admin page URL
+ */
+function ccf_get_admin_url() {
+    return admin_url('admin.php?page=ccf-settings');
+}
+
+/**
+ * Get plugin documentation URL
+ * 
+ * @return string Documentation URL
+ */
+function ccf_get_documentation_url() {
+    return 'https://github.com/csherlock4/custom-checkout-fields';
+}
+
+/**
+ * Get plugin support URL
+ * 
+ * @return string Support URL
+ */
+function ccf_get_support_url() {
+    return 'https://github.com/csherlock4/custom-checkout-fields/issues';
+}
+
+/**
+ * Check if user can manage fields
+ * 
+ * @return bool True if user can manage fields
+ */
+function ccf_user_can_manage_fields() {
+    return current_user_can('manage_options');
+}
+
+/**
+ * Check if user can edit orders
+ * 
+ * @return bool True if user can edit orders
+ */
+function ccf_user_can_edit_orders() {
     return current_user_can('edit_shop_orders') || current_user_can('manage_woocommerce');
 }
 
-function ccf_get_order_meta($request) {
-    $order_id = $request->get_param('order_id');
-    
-    // Get order to make sure it exists
-    $order = wc_get_order($order_id);
-    if (!$order) {
-        return new WP_Error('order_not_found', 'Order not found', ['status' => 404]);
-    }
-    
-    $custom_fields = [];
-    
-    // Get all configured fields for reference
-    $configured_fields = get_option('ccf_fields', []);
-    
-    // Look for legacy field first
-    $legacy_value = $order->get_meta('_ccf_field', true);
-    if ($legacy_value) {
-        $legacy_label = get_option('ccf_label', 'Extra Information');
-        $custom_fields[] = [
-            'id' => 'ccf_field',
-            'key' => '_ccf_field',
-            'value' => $legacy_value,
-            'label' => $legacy_label,
-            'type' => 'text',
-            'config' => null
-        ];
-    }
-    
-    // Get all multi-field values
-    foreach ($configured_fields as $field) {
-        if (empty($field['id'])) continue;
-        
-        $field_key = '_' . $field['id'];
-        $field_value = $order->get_meta($field_key, true);
-        
-        if ($field_value !== '') { // Allow empty strings but not false/null
-            $custom_fields[] = [
-                'id' => $field['id'],
-                'key' => $field_key,
-                'value' => $field_value,
-                'label' => $field['label'],
-                'type' => $field['type'],
-                'config' => $field
-            ];
-        }
-    }
-    
-    return [
-        'order_id' => $order_id,
-        'custom_fields' => $custom_fields
-    ];
+/**
+ * Get legacy field label (for backward compatibility)
+ * 
+ * @return string Legacy field label
+ */
+function ccf_get_legacy_field_label() {
+    return get_option('ccf_label', __('Extra Information', 'custom-checkout-fields'));
 }
 
-function ccf_update_order_meta($request) {
-    $order_id = $request->get_param('order_id');
-    $fields = $request->get_param('fields');
-    
-    // Get order to make sure it exists
-    $order = wc_get_order($order_id);
-    if (!$order) {
-        return new WP_Error('order_not_found', 'Order not found', ['status' => 404]);
-    }
-    
-    $updated_fields = [];
-    
-    // Update each field
-    foreach ($fields as $field) {
-        if (!isset($field['key']) || !isset($field['value'])) {
-            continue;
-        }
-        
-        $field_key = $field['key'];
-        $field_value = sanitize_text_field($field['value']);
-        
-        // Update the meta
-        update_post_meta($order_id, $field_key, $field_value);
-        
-        $updated_fields[] = [
-            'key' => $field_key,
-            'value' => $field_value
-        ];
-    }
-    
-    // Add order note about the update
-    if (!empty($updated_fields)) {
-        $note = 'Custom fields updated: ' . implode(', ', array_map(function($f) {
-            return str_replace(['_ccf_', '_'], ['', ' '], $f['key']);
-        }, $updated_fields));
-        
-        $order->add_order_note($note);
-    }
-    
-    return [
-        'success' => true,
-        'order_id' => $order_id,
-        'updated_fields' => $updated_fields
+/**
+ * Clean field ID (remove special characters)
+ * 
+ * @param string $id Field ID
+ * @return string Cleaned field ID
+ */
+function ccf_clean_field_id($id) {
+    return sanitize_key($id);
+}
+
+/**
+ * Get field icon for admin display
+ * 
+ * @param string $field_type Field type
+ * @return string Icon HTML or dashicon class
+ */
+function ccf_get_field_icon($field_type) {
+    $icons = [
+        'text' => 'dashicons-edit',
+        'textarea' => 'dashicons-text',
+        'select' => 'dashicons-arrow-down-alt2',
+        'email' => 'dashicons-email',
+        'tel' => 'dashicons-phone',
+        'number' => 'dashicons-calculator',
+        'url' => 'dashicons-admin-links',
     ];
+    
+    return $icons[$field_type] ?? 'dashicons-edit';
+}
+
+/**
+ * Initialize all plugin components
+ * 
+ * This function is called from the main plugin file to initialize all components.
+ */
+function ccf_init_components() {
+    // Initialize singletons
+    CCF_Field_Manager::get_instance();
+    CCF_Checkout_Integration::get_instance();
+    CCF_Order_Meta::get_instance();
+    CCF_Admin_Integration::get_instance();
+    CCF_Email_Integration::get_instance();
+    CCF_REST_API::get_instance();
+    
+    // Initialize block integration (it will self-determine if it should activate)
+    CCF_Block_Checkout::get_instance();
 }

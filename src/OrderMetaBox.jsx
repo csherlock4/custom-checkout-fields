@@ -13,7 +13,7 @@ export default function OrderMetaBox({ orderId }) {
     
     // Use a custom REST endpoint to get order meta data
     wp.apiRequest({
-      path: `/mccf/v1/order-meta/${orderId}`,
+      path: `/ccf/v1/order-meta/${orderId}`,
     }).then((data) => {
       setCustomFields(data.custom_fields || [])
       
@@ -52,7 +52,7 @@ export default function OrderMetaBox({ orderId }) {
     }
     
     wp.apiRequest({
-      path: `/mccf/v1/order-meta/${orderId}`,
+      path: `/ccf/v1/order-meta/${orderId}`,
       method: 'POST',
       data: {
         fields: changedFields
